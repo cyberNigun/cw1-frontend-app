@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>After School Classes App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f4f6f8; }
+        .card-lesson { transition: transform 0.2s; }
+        .card-lesson:hover { transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1); }
+        .app-container { min-height: 100vh; }
+        .lesson-img { height: 150px; object-fit: cover; }
+    </style>
+</head>
+<body>
+
+<div id="app" class="app-container p-4 sm:p-8">
+    <!-- Header/Navigation Bar -->
+    <header class="flex justify-between items-center bg-white p-4 rounded-lg shadow-md mb-6 sticky top-0 z-10">
+        <h1 class="text-2xl font-bold text-indigo-700">Class Booking</h1>
+        <button
+            @click="toggleView"
+            :disabled="!isCartReady && currentView === 'lessons'"
+            class="p-2 px-4 rounded-full font-semibold transition duration-200"
+            :class="{
+                'bg-indigo-500 text-white hover:bg-indigo-600': isCartReady || currentView === 'cart',
+                'bg-gray-300 text-gray-500 cursor-not-allowed': !isCartReady && currentView === 'lessons'
+            }"
+        >
+            <i class="fa-solid fa-cart-shopping"></i> ({{ totalItemsInCart }})
+        </button>
+    </header>
+
+    <!-- Loading State -->
+    <div v-if="loading" class="text-center p-10 bg-white rounded-xl shadow-lg text-indigo-500 font-semibold text-lg">
+        <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading lessons from server...
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="fetchError" class="text-center p-10 bg-red-100 rounded-xl shadow-lg text-red-700 font-semibold text-lg">
+        <i class="fa-solid fa-triangle-exclamation mr-2"></i> Error connecting to server: {{ fetchError }}. Check API_URL and server status.
+    </div>
+
+    <!-- LESSONS VIEW -->
+    <div v-else-if="currentView === 'lessons'" class="space-y-6">
+        <!-- Sorting Controls -->
+       <!-- COMBINED SEARCH & SORT CONTROLS -->
+<div class="bg-white p-5 rounded-xl shadow-lg flex flex-col lg:flex-row lg:gap-6 space-y-4 lg:space-y-0 items-center mb-6">
+    
+    <!-- Search Input (Wider section - Criteria: Search Approach 2) -->
+    <div class="flex items-center w-full lg:w-3/5">
+        <label for="search" class="text-lg font-semibold text-gray-700 mr-4 whitespace-nowrap">Search:</label>
+        <input 
+            type="text" 
+            id="search" 
+            v-model="searchQuery"
+            @input="debouncedSearch"
+            placeholder="Search subjects, locations, or prices..." 
+            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+            ref="searchInputRef"
+        >
+    </div>
+
+    <!-- Sorting Controls (Narrower section - Criteria: Sort A & B) -->
+    <div class="flex flex-wrap gap-3 items-center w-full lg:w-2/5 justify-end">
+        <h2 class="text-lg font-semibold text-gray-700 whitespace-nowrap hidden lg:block">Sort By:</h2>
+        <!-- Sort Attribute Dropdown -->
+        <select v-model="sortBy" class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="subject">Subject</option>
+            <option value="location">Location</option>
+            <option value="price">Price</option>
+            <option value="spaces">Spaces</option>
+        </select>
+        <!-- Sort Order Dropdown -->
+        <select v-model="sortOrder" class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="ascending">Ascending</option>
+            <option value="descending">Descending</option>
+        </select>
+    </div>
+</div>
+        <!-- Lesson List -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div
+                v-for="lesson in sortedLessons"
+                :key="lesson._id"
+                class="card-lesson bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 flex flex-col justify-between"
+            >
+                <div>
+                    <!-- Image Display -->
+                    <img :src="lesson.image" 
+                         @error="lesson.image = 'https://placehold.co/400x150/000/fff?text=Image+N%2FA'"
+                         alt="Class image" 
+                         class="w-full lesson-img rounded-md mb-3 object-cover"
+                    >
+
+                    <!-- Subject & Location -->
+                    <h3 class="text-xl font-extrabold text-gray-900 mb-1">{{ lesson.subject }}</h3>
+                    <p class="text-sm text-gray-500 mb-4">{{ lesson.location }}</p>
+
+                    <!-- Details (Price & Spaces) -->
+                    <div class="space-y-2 mb-6">
+                        <p class="flex items-center text-lg font-semibold text-green-600">
+                            <i class="fa-solid fa-tag w-5 mr-2"></i> ${{ lesson.price }}
+                        </p>
+                        <p class="flex items-center text-sm" :class="{'text-red-500 font-bold': lesson.spaces < 3, 'text-gray-600': lesson.spaces >= 3}">
+                            <i class="fa-solid fa-users w-5 mr-2"></i> Spaces Left: {{ lesson.spaces }}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Add to Cart Button -->
+                <button
+                    @click="addToCart(lesson._id)"
+                    :disabled="lesson.spaces === 0"
+                    class="mt-4 w-full py-2 rounded-lg font-bold transition duration-300"
+                    :class="{
+                        'bg-indigo-500 text-white hover:bg-indigo-600 shadow-md': lesson.spaces > 0,
+                        'bg-red-400 text-white cursor-not-allowed': lesson.spaces === 0
+                    }"
+                >
+                    {{ lesson.spaces === 0 ? 'SOLD OUT' : 'Add to Cart' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHOPPING CART / CHECKOUT VIEW -->
+    <div v-else-if="currentView === 'cart'" class="max-w-4xl mx-auto space-y-8">
+        <h2 class="text-3xl font-bold text-center text-indigo-700">Your Shopping Cart</h2>
+
+        <!-- Cart Lessons List -->
+        <div v-if="cartLessons.length > 0" class="bg-white p-6 rounded-xl shadow-lg">
+            <div v-for="item in cartLessons" :key="item._id" class="flex justify-between items-center py-3 border-b last:border-b-0">
+                <div class="flex items-center space-x-4">
+                    <img :src="item.image" 
+                         @error="item.image = 'https://placehold.co/50x50/000/fff?text=N%2FA'"
+                         alt="Class image" 
+                         class="w-12 h-12 rounded-full object-cover"
+                    >
+                    <div>
+                        <p class="font-semibold text-lg">{{ item.subject }}</p>
+                        <p class="text-sm text-gray-500">Location: {{ item.location }}</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <p class="font-bold text-green-600">${{ item.price }} x {{ item.quantity }}</p>
+                    <button
+                        @click="removeFromCart(item._id)"
+                        class="text-red-500 hover:text-red-700 transition duration-150 p-2 rounded-full hover:bg-red-50"
+                        title="Remove 1 item from cart"
+                    >
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </div>
+            <p class="text-right text-xl font-bold mt-4 pt-4 border-t-2 border-dashed">
+                Total: ${{ totalCartPrice.toFixed(2) }}
+            </p>
+        </div>
+        <div v-else class="text-center p-10 bg-white rounded-xl shadow-lg text-gray-500">
+            Your cart is empty. <button @click="toggleView" class="text-indigo-500 hover:underline">Go back to lessons.</button>
+        </div>
+
+        <!-- Checkout Form -->
+        <div v-if="cartLessons.length > 0" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+            <h3 class="text-xl font-bold mb-4 text-gray-800">Checkout Details</h3>
+            
+            <div class="space-y-4">
+                <!-- Name Input -->
+                <div class="flex flex-col">
+                    <label for="name" class="font-medium text-gray-700">Full Name (Letters Only)</label>
+                    <input type="text" id="name" v-model="checkoutName" class="mt-1 p-3 border rounded-lg focus:ring-green-500 focus:border-green-500">
+                    <p v-if="!isNameValid && checkoutName.length > 0" class="text-red-500 text-sm mt-1">Name must contain only letters and spaces.</p>
+                </div>
+
+                <!-- Phone Input -->
+                <div class="flex flex-col">
+                    <label for="phone" class="font-medium text-gray-700">Phone Number (Numbers Only)</label>
+                    <input type="tel" id="phone" v-model="checkoutPhone" class="mt-1 p-3 border rounded-lg focus:ring-green-500 focus:border-green-500">
+                    <p v-if="!isPhoneValid && checkoutPhone.length > 0" class="text-red-500 text-sm mt-1">Phone must contain only numbers.</p>
+                </div>
+            </div>
+
+            <!-- Checkout Button -->
+            <button
+                @click="submitOrder"
+                :disabled="!isCheckoutValid || submittingOrder"
+                class="mt-6 w-full py-3 rounded-lg font-bold text-white transition duration-300"
+                :class="{
+                    'bg-green-500 hover:bg-green-600 shadow-md': isCheckoutValid && !submittingOrder,
+                    'bg-gray-400 cursor-not-allowed': !isCheckoutValid || submittingOrder
+                }"
+            >
+                <i v-if="submittingOrder" class="fa-solid fa-spinner fa-spin mr-2"></i>
+                {{ submittingOrder ? 'Submitting...' : 'Confirm Order' }}
+            </button>
+            
+            <!-- Confirmation Message -->
+            <div v-if="orderSubmitted" class="mt-4 p-4 bg-green-100 text-green-700 rounded-lg text-center font-semibold">
+                Order Submitted Successfully! Thank you!
+            </div>
+            <div v-if="orderError" class="mt-4 p-4 bg-red-100 text-red-700 rounded-lg text-center font-semibold">
+                Order failed: {{ orderError }}
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+
+<script type="module">
+    const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+    // Helper function for 'search as you type' (debounce)
+    const debounce = (fn, delay) => {
+        let timeoutId;
+        return function(...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => fn.apply(this, args), delay);
+        };
+    };
+
+    createApp({
+        setup() {
+            // ⚠️ IMPORTANT: The API URL for your local server
+            const API_URL = 'http://localhost:3000'; 
+
+            // --- STATE VARIABLES ---
+            const lessons = ref([]); 
+            const cart = ref([]);
+            const currentView = ref('lessons');
+            const sortBy = ref('subject');
+            const sortOrder = ref('ascending');
+            const checkoutName = ref('');
+            const checkoutPhone = ref('');
+            const orderSubmitted = ref(false);
+            const submittingOrder = ref(false);
+            const loading = ref(true);
+            const fetchError = ref(null);
+            const orderError = ref(null);
+            
+            const searchQuery = ref(''); 
+            
+            // NEW: Template Ref for direct DOM access
+            const searchInputRef = ref(null);
+
+            // --- FETCH METHODS ---
+
+            const fetchLessons = async (query = '') => {
+                loading.value = true;
+                fetchError.value = null;
+                try {
+                    const url = query ? `${API_URL}/search?q=${query}` : `${API_URL}/lessons`;
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    lessons.value = data.map(lesson => ({...lesson, _id: lesson._id}));
+                } catch (error) {
+                    fetchError.value = "Could not connect to the API server.";
+                } finally {
+                    loading.value = false;
+                }
+            };
+
+            // Search as you type helper: calls fetchLessons 300ms after user stops typing
+            const debouncedSearch = debounce(async () => {
+                // Perform the fetch, which causes re-render
+                await fetchLessons(searchQuery.value);
+                
+                // CRITICAL FIX: Use nextTick to guarantee the DOM is updated, then re-focus
+                await nextTick();
+                if (searchInputRef.value) {
+                    searchInputRef.value.focus();
+                }
+
+            }, 300);
+            
+            // --- Core Vue Methods (omitted for brevity, keep existing logic) ---
+
+            const toggleView = () => {
+                currentView.value = currentView.value === 'lessons' ? 'cart' : 'lessons';
+                orderSubmitted.value = false;
+                orderError.value = null;
+            };
+
+            const addToCart = (_id) => {
+                const lesson = lessons.value.find(l => l._id === _id);
+                if (lesson && lesson.spaces > 0) {
+                    lesson.spaces--; 
+                    const cartItem = cart.value.find(item => item._id === _id);
+                    if (cartItem) {
+                        cartItem.quantity++;
+                    } else {
+                        cart.value.push({ _id, quantity: 1 });
+                    }
+                }
+                orderSubmitted.value = false;
+                orderError.value = null;
+            };
+
+            const removeFromCart = (_id) => {
+                const cartItemIndex = cart.value.findIndex(item => item._id === _id);
+                if (cartItemIndex !== -1) {
+                    const lesson = lessons.value.find(l => l._id === _id);
+                    if (lesson) { lesson.spaces++; }
+                    cart.value[cartItemIndex].quantity--;
+                    if (cart.value[cartItemIndex].quantity === 0) {
+                        cart.value.splice(cartItemIndex, 1);
+                    }
+                }
+            };
+            
+            const submitOrder = async () => {
+                if (!isCheckoutValid.value) return;
+
+                submittingOrder.value = true;
+                orderSubmitted.value = false;
+                orderError.value = null;
+
+                const orderData = {
+                    name: checkoutName.value,
+                    phone: checkoutPhone.value,
+                    lessons: cart.value.map(item => {
+                        const lessonDetails = lessons.value.find(l => l._id === item._id);
+                        return { lessonId: item._id, quantity: item.quantity, price: lessonDetails.price };
+                    }),
+                    totalPrice: totalCartPrice.value,
+                };
+
+                try {
+                    const postResponse = await fetch(`${API_URL}/orders`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(orderData)
+                    });
+
+                    if (!postResponse.ok) { throw new Error("Order POST failed."); }
+
+                    const putPromises = cart.value.map(async (item) => {
+                        const lesson = lessons.value.find(l => l._id === item._id);
+                        const newSpace = lesson.spaces; 
+
+                        const putResponse = await fetch(`${API_URL}/lessons/${item._id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ spaces: newSpace })
+                        });
+
+                        if (!putResponse.ok) { throw new Error(`Lesson update failed for ID: ${item._id}`); }
+                    });
+
+                    await Promise.all(putPromises);
+                    
+                    cart.value = [];
+                    checkoutName.value = '';
+                    checkoutPhone.value = '';
+                    orderSubmitted.value = true;
+
+                } catch (error) {
+                    orderError.value = "Failed to submit order or update spaces. Please check server logs.";
+                    fetchLessons(); 
+                } finally {
+                    submittingOrder.value = false;
+                }
+            };
+
+
+            // --- Computed Properties (omitted for brevity, keep existing logic) ---
+
+            const sortedLessons = computed(() => {
+                let sorted = [...lessons.value]; 
+                const order = sortOrder.value === 'ascending' ? 1 : -1;
+                sorted.sort((a, b) => {
+                    let valA, valB; let key = sortBy.value;
+                    if (key === 'subject' || key === 'location') { valA = a[key].toUpperCase(); valB = b[key].toUpperCase(); } 
+                    else { valA = a[key]; valB = b[key]; }
+                    if (valA < valB) return -1 * order;
+                    if (valA > valB) return 1 * order;
+                    return 0;
+                });
+                return sorted;
+            });
+
+            const isCartReady = computed(() => cart.value.length > 0);
+            const totalItemsInCart = computed(() => cart.value.reduce((total, item) => total + item.quantity, 0));
+            const cartLessons = computed(() => cart.value.map(cartItem => {
+                const lesson = lessons.value.find(l => l._id === cartItem._id);
+                return { ...lesson, quantity: cartItem.quantity };
+            }));
+            const totalCartPrice = computed(() => cartLessons.value.reduce((total, item) => total + (item.price * item.quantity), 0));
+
+            const isNameValid = computed(() => /^[a-zA-Z\s]+$/.test(checkoutName.value) && checkoutName.value.trim().length > 0);
+            const isPhoneValid = computed(() => /^[0-9]+$/.test(checkoutPhone.value) && checkoutPhone.value.trim().length > 0);
+            const isCheckoutValid = computed(() => isNameValid.value && isPhoneValid.value && isCartReady.value);
+
+            // Lifecycle Hook: Runs on page load
+            onMounted(() => {
+                fetchLessons();
+            });
+
+            return {
+                // State
+                lessons, cart, currentView, sortBy, sortOrder, 
+                checkoutName, checkoutPhone, orderSubmitted, 
+                submittingOrder, loading, fetchError, orderError,
+                searchQuery, searchInputRef, // NEW: searchInputRef must be returned
+                
+                // Computed
+                sortedLessons, isCartReady, totalItemsInCart, 
+                cartLessons, totalCartPrice, isNameValid, 
+                isPhoneValid, isCheckoutValid,
+                
+                // Methods
+                toggleView, addToCart, removeFromCart, submitOrder,
+                debouncedSearch, 
+            };
+        }
+    }).mount('#app');
+</script>
